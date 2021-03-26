@@ -1,0 +1,16 @@
+model:
+    name: Doc2vec
+    checkpoint: linguistics/embeddings/output/doc2vec_mimic/DBOW_vector768_window8_count15_epoch50_mimic.doc2vec
+dataset:
+    name: MimicDataset
+    task: six
+report:
+    report_policy: top_section
+experiment:
+    name: doc2vec_mimic_mit
+    output_dir: linguistics/embeddings/output/
+    save_vectors: False
+    do_split:
+        - val
+        - test
+        - train

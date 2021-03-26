@@ -1,0 +1,14 @@
+model:
+    name: BlueBERT
+dataset:
+    name: MimicDataset
+    task: six
+report:
+    report_policy: top_section
+experiment:
+    name: bluebert_mimix_six
+    output_dir: linguistics/embeddings/output/
+    save_vectors: False
+    do_split:
+        - val
+        - test

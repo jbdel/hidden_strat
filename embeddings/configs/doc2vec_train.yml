@@ -1,0 +1,18 @@
+model:
+    name: Doc2vec
+    to_train: True
+    vector_size: 768
+    epochs: 50
+dataset:
+    name: MimicDataset
+    task: six
+report:
+    report_policy: top_section
+experiment:
+    name: doc2vec_mimic
+    output_dir: linguistics/embeddings/output/
+    save_vectors: True
+    do_split:
+        - val
+        - test
+        - train

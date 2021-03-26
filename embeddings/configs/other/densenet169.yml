@@ -1,0 +1,15 @@
+model:
+    name: CNNVec
+    checkpoint: classifier/checkpoints/my_model/best0.6435013173057669.pkl
+#    checkpoint: classifier/checkpoints/my_model_constrained/best0.6354023763385523.pkl
+dataset:
+    name: MimicDataset
+    task: six
+    return_image: True
+experiment:
+    name: densenet169_mimic_six_no_constr_actual
+    output_dir: linguistics/embeddings/output/
+    save_vectors: False
+    do_split:
+        - val
+        - test

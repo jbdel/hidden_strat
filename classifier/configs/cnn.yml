@@ -1,0 +1,37 @@
+model: densenet169
+model_params:
+  pretrained: True
+dataset: MimicDataset
+dataset_params:
+    task: six
+    return_label: True
+    return_image: True
+    return_report: False
+    image_root: data/mimic-cxr/images/ #inside this is p10, p11...
+losses:
+    - ClassificationLoss
+metrics:
+    - ClassificationMetric
+metrics_params:
+    decision_function: sigmoid
+early_stop:
+    early_stop_metric: f1_score_weighted
+    no_improvements: 5
+    higher_is_better: True
+scheduler:
+    use_scheduler: True
+    name: ReduceLROnPlateau #takes early_stop_metric by default
+scheduler_params:
+    mode: max
+    factor: 0.1
+    patience: 2
+    threshold: 0.005  # 0.5%
+    threshold_mode: abs
+hyperparameter:
+    lr_base: 1e-3
+    batch_size: 64
+    grad_norm_clip: -1
+    eval_start: 1
+experiment:
+    name: my_model
+    output_dir: classifier/checkpoints
