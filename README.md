@@ -1,3 +1,7 @@
+mimic-data: Download annotations.json and the images from [here](https://drive.google.com/drive/folders/1dQVcrU3NLWwYDCtsnAEI_ROh1cBwFSHV)
+and place it in `data/mimic-cxr/`<br/>
+
+
 ##### tackling the hidden strat problem
 
 Datasets are configured with different tasks. 
