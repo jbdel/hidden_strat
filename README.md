@@ -3,7 +3,7 @@
 Datasets are configured with different tasks. 
 
 For example, we define mimic-cxr with three tasks: all (cnn is trained on all fourteen classes), six (according to this 
-[tree](https://stanfordmlgroup.github.io/competitions/chexpert/img/figure1.png) or binary. This definition is available in 
+[tree](https://stanfordmlgroup.github.io/competitions/chexpert/img/figure1.png)) or binary. This definition is available in 
 `dataloaders/MimicDataset/BaseMimic.py`
 
 To run a model on MimicDataset using a densenet backbone, use the following command
@@ -49,15 +49,16 @@ The report dictionary contains the following information:
  'comparison': str
 }
 ```
-you can use each report to compute vectors representation. This is the command using doc2vec
+You can use each report to compute vectors representation. This is the command using doc2vec
 
 ```
 python -m linguistics.embeddings.compute_embeddings --config doc2vec_train.yml
 ```
-it trains a doc2vec model and plots embeddings using tsne-umap. it will also create the file `linguistics/embeddings/output/doc2vec_mimic/vectors.pkl` 
-that you can use to train a contrained model.<br/>
+It trains a doc2vec model and plots embeddings using tsne and umap. 
 
-In the config file, notice the param `report: report_policy: top_section`. It defines what to input from the report to the model.
+It will also create the file `linguistics/embeddings/output/doc2vec_mimic/vectors.pkl` that you can use to train a contrained model.<br/>
+
+In the config file, notice the param `report.report_policy: top_section`. It defines what to input from the report to the embedding model.
 So far we have two policies definied at: `embeddings/utils.py`:
  
  ```
@@ -89,8 +90,10 @@ To train a constrained model, use the following command
 ```
 python -m classifier.main --config classifier/configs/cnn_constrained.yml -o dataset_params.vector_file: embeddings/output/doc2vec_mimic/vectors.pkl
 ```
+The constraining is done by the `CosineLoss` in `classifier/losses/cosine.py`.
+
 Though it will be trained on `task: six`, you can evaluate it on all classes by doing:
 ```
-python -m classifier.main --ckpt classifier/checkpoints/my_model_constrained/best0.46879885719564507.pkl -o metrics=[ClassificationMetric, HiddenStratMetric]
+python -m classifier.main --ckpt classifier/checkpoints/my_model_constrained/best0.46879885719564507.pkl -o metrics=[HiddenStratMetric]
 ```
-More info on how we do in `classifier/metrics/hidden_strat.py`
+More info on how we do it in `classifier/metrics/hidden_strat.py`
