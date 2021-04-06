@@ -20,9 +20,13 @@ def flatten(A):
 
 
 def get_losses_fn(cfg):
-    if cfg.losses_params is None:
-        cfg.losses_params = dict()
-    return [eval(loss)(cfg, **cfg.losses_params) for loss in cfg.losses]
+    losses_fn = []
+    for loss in cfg.losses:
+        loss_param = cfg.losses_params[loss]
+        if loss_param is None:
+            loss_param = dict()
+        losses_fn.append(eval(loss)(cfg, **loss_param))
+    return losses_fn
 
 
 def get_metrics(cfg):

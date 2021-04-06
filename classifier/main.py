@@ -77,7 +77,8 @@ if __name__ == '__main__':
     # Losses
     losses_fn = get_losses_fn(cfg)
     loss_required_keys = set(flatten([loss.get_required_keys() for loss in losses_fn]))
-    print('Using losses', [type(loss).__name__ for loss in losses_fn], "needing the model to return",
+    print('Using losses', [(type(loss).__name__, 'weight:' + str(loss.weight)) for loss in losses_fn],
+          "needing the model to return",
           loss_required_keys)
 
     # Metrics

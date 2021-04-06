@@ -42,7 +42,15 @@ def get_report(report, policy=None):
         policy = 'top_section'
 
     if policy == 'top_section':
-        for section in ['findings', 'impression', 'background']:
+        for section in ['impression', 'findings', 'background']:
+            if section not in report:
+                continue
+
+            if report[section] != '':
+                return report[section]
+
+    elif policy == 'impression':
+        for section in ['impression']:
             if section not in report:
                 continue
 

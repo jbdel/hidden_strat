@@ -8,11 +8,14 @@ dataset_params:
     return_label: True
     return_image: True
     return_report: False
-    image_root: data/mimic-cxr/images/ #inside this is p10, p11...
-    vector_file: linguistics/embeddings/output/doc2vec_mimic/vectors.pkl
+    image_root: data/mimic-cxr/
+    vector_file: embeddings/output/doc2vec_mimic/vectors.pkl
 losses:
     - ClassificationLoss
     - CosineLoss
+losses_params:
+    CosineLoss:
+        weight: 2.0
 metrics:
     - ClassificationMetric
 metrics_params:

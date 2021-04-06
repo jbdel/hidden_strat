@@ -7,9 +7,10 @@ import abc
 class BaseLoss(nn.Module):
     __metaclass__ = abc.ABC
 
-    def __init__(self, cfg, **kwargs):
+    def __init__(self, cfg, weight=1.0, **kwargs):
         super(BaseLoss, self).__init__()
         self.cfg = cfg
+        self.weight = weight
 
     def forward(self, input, target):
         assert isinstance(input, dict), 'input is not a dictionary'

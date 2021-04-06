@@ -7,7 +7,7 @@ dataset_params:
     return_label: True
     return_image: True
     return_report: False
-    image_root: data/mimic-cxr/images/ #inside this is p10, p11...
+    image_root: data/mimic-cxr/
 losses:
     - ClassificationLoss
 metrics:

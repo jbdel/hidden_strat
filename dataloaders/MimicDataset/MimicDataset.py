@@ -29,11 +29,10 @@ class MimicDataset(BaseMimic):
 
     def __getitem__(self, idx):
         example = self.examples[idx]
-        image_id = example['id']
         study_id = example['study_id']
         subject_id = example['subject_id']
 
-        key = (subject_id, study_id, image_id)
+        key = (subject_id, study_id)
 
         image = torch.tensor(0)
         label = torch.tensor(0)

@@ -52,11 +52,11 @@ The report dictionary contains the following information:
 You can use each report to compute vectors representation. This is the command using doc2vec
 
 ```
-python -m linguistics.embeddings.compute_embeddings --config doc2vec_train.yml
+python -m embeddings.compute_embeddings --config embeddings/configs/doc2vec_train.yml
 ```
 It trains a doc2vec model and plots embeddings using tsne and umap. 
 
-It will also create the file `linguistics/embeddings/output/doc2vec_mimic/vectors.pkl` that you can use to train a contrained model.<br/>
+It will also create the file `embeddings/output/doc2vec_mimic/vectors.pkl` that you can use to train a contrained model.<br/>
 
 In the config file, notice the param `report.report_policy: top_section`. It defines what to input from the report to the embedding model.
 So far we have two policies definied at: `embeddings/utils.py`:
@@ -88,7 +88,7 @@ Make your own.<br/>
 
 To train a constrained model, use the following command
 ```
-python -m classifier.main --config classifier/configs/cnn_constrained.yml -o dataset_params.vector_file: embeddings/output/doc2vec_mimic/vectors.pkl
+python -m classifier.main --config classifier/configs/cnn_constrained.yml -o dataset_params.vector_file=embeddings/output/doc2vec_mimic/vectors.pkl
 ```
 The constraining is done by the `CosineLoss` in `classifier/losses/cosine.py`.
 

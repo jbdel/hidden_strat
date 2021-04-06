@@ -94,5 +94,4 @@ if __name__ == '__main__':
 
     if cfg.experiment.save_vectors:
         import pickle
-
         pickle.dump(vectors, open(os.path.join(cfg.outdir, 'vectors.pkl'), 'wb'))

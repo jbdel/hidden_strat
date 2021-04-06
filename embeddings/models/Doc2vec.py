@@ -43,6 +43,7 @@ def train_doc2vec(cfg):
     print("Building corpus")
     for i, sample in enumerate(tqdm(dataset)):
         report = get_report(sample['report'], policy=cfg.report.report_policy)
+        # print(report)
         report = gensim.utils.simple_preprocess(report)
         train_corpus.append(gensim.models.doc2vec.TaggedDocument(report, [i]))
 
