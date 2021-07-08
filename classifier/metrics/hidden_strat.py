@@ -1,48 +1,18 @@
-import os
-import pickle
-import numpy as np
-from .basemetric import BaseMetric
-from dataloaders import *
-from tqdm import tqdm
-from omegaconf.dictconfig import DictConfig
-from omegaconf import OmegaConf
-from sklearn.utils.sparsefuncs import count_nonzero
-from scipy.sparse import csr_matrix
 import copy
-from collections import defaultdict, Counter
-from sklearn.metrics import classification_report
+import json
+import numpy as np
+import torch.nn as nn
+from tqdm import tqdm
+from dataloaders import *
+from omegaconf import OmegaConf
+from collections import Counter
+from omegaconf.dictconfig import DictConfig
 
 
-def get_vectors_labels(dset):
-    vectors = []
-    labels = []
-    for i in tqdm(range(len(dset))):
-    # for i in tqdm(range(500)):
-        sample = dset.__getitem__(i)
-        vectors.append(sample["vector"])
-        labels.append(sample["label"])
-    return np.array(vectors), np.array(labels)
-
-
-def argsort(x, topn=None, reverse=False):
-    x = np.asarray(x)  # unify code path for when `x` is not a np array (list, tuple...)
-    if topn is None:
-        topn = x.size
-    if topn <= 0:
-        return []
-    if reverse:
-        x = -x
-    if topn >= x.size or not hasattr(np, 'argpartition'):
-        return np.argsort(x)[:topn]
-    # np >= 1.8 has a fast partial argsort, use that!
-    most_extreme = np.argpartition(x, topn)[:topn]
-    return most_extreme.take(np.argsort(x.take(most_extreme)))  # resort topn into order
-
-
-class HiddenStratMetric(BaseMetric):
+class HiddenStratMetric(nn.Module):
     def __init__(self, cfg, decision_function=None, **kwargs):
-        super(HiddenStratMetric, self).__init__(cfg, **kwargs)
-
+        super(HiddenStratMetric, self).__init__()
+        self.cfg = cfg
         # Decision function
         assert decision_function is not None, 'decision_function is None'
         self.decision_function = decision_function
@@ -53,98 +23,82 @@ class HiddenStratMetric(BaseMetric):
         else:
             raise NotImplementedError(self.decision_function)
 
-        # Train vectors and train labels for 'all' task
+        # Get hidden_strat classes for current task (i.e. classes that have subclasses)
+        self.current_task_dset = eval(self.cfg.dataset)('val', **cfg.dataset_params)
+        self.class_with_subtask_name = list(self.current_task_dset.hidden_strat_label_task)
+        print('Running hidden stratification on classes', self.class_with_subtask_name)
+        self.tree_hidden = {label: list(self.current_task_dset.get_tree()[label]) for label in
+                            self.class_with_subtask_name}
+        print(json.dumps(self.tree_hidden, indent=4))
+
+        # get position of the classes in the prediction vector
+        self.class_with_subtask_pos = [self.current_task_dset.pos_label_task[label] for label in
+                                       self.class_with_subtask_name]
+
+        # Creating a dataset with task "all" to get "all" labels
         dataset_params = copy.deepcopy(cfg.dataset_params)
         OmegaConf.update(dataset_params, 'task', 'all', merge=False)
-        train_dset = eval(self.cfg.dataset)('train', **dataset_params)
-        val_dset = eval(self.cfg.dataset)('val', **dataset_params)
+        OmegaConf.update(dataset_params, 'return_image', False, merge=False)
+        all_task_val_dset = eval(self.cfg.dataset)('val', **dataset_params)
 
-        report_pkl_path = os.path.join(train_dset.data_root, "hidden_strat.pkl")
-        if not os.path.exists(report_pkl_path):
-            print('HiddenStratMetric: Building list of reports (only once)')
-            train_vectors, train_labels = get_vectors_labels(train_dset)
-            valid_vectors, valid_labels = get_vectors_labels(val_dset)
-            pickle.dump((train_vectors, train_labels, valid_vectors, valid_labels),
-                        open(report_pkl_path, "wb"))
+        self.y_true_all = np.array(
+            [all_task_val_dset.__getitem__(i)["label"] for i in range(len(all_task_val_dset))])
+        self.all_class_names = all_task_val_dset.get_all_class_names_ordered()
 
-        self.train_vectors, self.train_labels, self.valid_vectors, self.valid_labels = pickle.load(
-            open(report_pkl_path, "rb"))
+        # Finally, initialize counters
+        self.all_class_counter = Counter()
+        self.class_predicted_counter = Counter()
 
-        # Get 'all' info
-        self.all_classes = np.array(val_dset.get_all_class_names_ordered())
-        self.pos_label_all = val_dset.pos_label_all
+    def forward(self, input, target, **kwargs):
+        input, target = np.array(input['label']), np.array(target['label'])
+        y_pred = self.pred_fn(input)
+        y_true = target
 
-        # Get 'task' info
-        val_dset.task = cfg.dataset_params.task
-        self.task_tree = val_dset.get_tree()
-        self.task_classes = np.array(list(val_dset.get_classes()))
+        # Small sanitiy check
+        assert len(y_pred) == len(y_true) == len(self.y_true_all)
 
-        del train_dset
-        del val_dset
+        for y_p, y_t, all_y_t in tqdm(zip(y_pred, y_true, self.y_true_all)):
+            # get positive in 'all class' vector,  will be used for statistics
+            all_y_t_positive_name = [self.all_class_names[index] for index in all_y_t.nonzero()[0]]
+            self.all_class_counter.update(all_y_t_positive_name)
 
-    def forward(self, input, target):
-        # import inspect        #
-        # for v in inspect.stack():
-        #     print(v.function)
-        # sys.exit()
+            # get positive class from pred et ground_truth
+            p_pos = y_p.nonzero()[0]
+            t_pos = y_t.nonzero()[0]
 
-        input, target = super().forward(input, target)
-        metrics = dict()
+            # Class we care about that should be predicted
+            true_class_with_subtask_pos = set.intersection(*map(set, [t_pos, self.class_with_subtask_pos]))
+            class_names = [self.class_with_subtask_name[self.class_with_subtask_pos.index(pos)] for pos in
+                           true_class_with_subtask_pos]
+            self.all_class_counter.update(class_names)
 
-        # Getting correct classification
-        y_pred = self.pred_fn(input['label'])
-        y_true = self.pred_fn(target['label'])
-        correct = np.where(count_nonzero(csr_matrix(y_true) - csr_matrix(y_pred), axis=1) == 0)
-        correct = correct[0]
+            # if class we care about is predicted by model
+            hidden_pos = set.intersection(*map(set, [p_pos, true_class_with_subtask_pos]))
+            if len(hidden_pos) == 0:
+                continue
 
-        y_true_all = []
-        y_pred_all = []
-        # For each right prediction...
-        for index in range(len(y_pred)):
-            # Get top 10 train neighbors
-            vector = input['vector'][index]
-            dists = np.dot(self.train_vectors, np.squeeze(vector))
-            best_index = argsort(dists, topn=10, reverse=True)
-            # get neighbors labels and average it, we keep labels that appears > 50% of the time
-            neighbors_labels = self.train_labels[best_index]
-            neighbors_positive = (np.mean(neighbors_labels, axis=0)) > 0.5
+            # Now we need to find the actual subclass of predicted hidden_strat class
+            for pos in hidden_pos:
+                class_name = self.class_with_subtask_name[self.class_with_subtask_pos.index(pos)]
+                # get subclass of classname
+                class_name_subclass = self.current_task_dset.get_tree()[class_name]
 
-            # get neighbors classes according to 'all' task
-            report_classes = np.array(self.all_classes)[neighbors_positive]
+                # intersect with all_y_t_positive_name
+                positive_sub_class_name = set.intersection(*map(set, [class_name_subclass, all_y_t_positive_name]))
 
-            # get task class predicted by model
-            pred = np.squeeze(y_pred[index])
-            c_name = self.task_classes[np.where(pred == 1)]
+                # update counter
+                self.class_predicted_counter.update(list(positive_sub_class_name) + [class_name])
 
-            # Get 'all' ground truth label
-            gt_all = np.squeeze(self.valid_labels[index])
-            pred_all = np.zeros(len(gt_all))
-
-            # For each predicted class
-            for c in c_name:
-                # Get subclasses
-                subclasses = self.task_tree[c]
-                # If no subclasses, we put the label where it belongs
-                if len(subclasses) == 1:
-                    pred_all[self.pos_label_all[c]] = 1.
-                    continue
-                # for each class found in report, if its a subclass, put the label where it belongs
-                for r_c in report_classes:
-                    if r_c in subclasses:
-                        pred_all[self.pos_label_all[r_c]] = 1.
-
-            y_pred_all.append(pred_all)
-            y_true_all.append(gt_all)
-
-        metrics['hidden_strat_report_string'] = classification_report(np.array(y_true_all), np.array(y_pred_all),
-                                                                      target_names=self.all_classes)
-        metrics['hidden_strat_report_dict'] = classification_report(np.array(y_true_all), np.array(y_pred_all),
-                                                                    target_names=self.all_classes,
-                                                                    output_dict=True)
-        return metrics
+        stats = {k: (str(v) + '/' + str(self.all_class_counter[k])) for k, v in self.class_predicted_counter.items()}
+        print(stats)
+        # putting stats and self.tree_hidden all together
+        return {'hidden_strat_metric': json.dumps(
+            {'{} ({})'.format(k, stats[k]): ['{} ({})'.format(v_, stats[v_]) for v_ in v]
+             for k, v in self.tree_hidden.items()},
+            indent=4, sort_keys=True)}
 
     def get_required_keys(self):
-        return ['label', 'vector']
+        return ['label']
 
 
 def valid(o):

@@ -3,16 +3,17 @@ import torch
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 from .plot import plot_roc, plot_roc_multi
-from .basemetric import BaseMetric
 from sklearn.metrics import f1_score
 from sklearn.metrics import classification_report
 from sklearn.metrics import accuracy_score
+import torch.nn as nn
 
 
-class ClassificationMetric(BaseMetric):
+class ClassificationMetric(nn.Module):
     def __init__(self, cfg, decision_function=None, **kwargs):
-        super(ClassificationMetric, self).__init__(cfg, **kwargs)
+        super(ClassificationMetric, self).__init__()
         assert decision_function is not None, 'decision_function is None'
+        self.cfg = cfg
         self.decision_function = decision_function
 
         # Getting logit function and prediction function from decision param
@@ -25,17 +26,11 @@ class ClassificationMetric(BaseMetric):
         else:
             raise NotImplementedError(self.decision_function)
 
-    def forward(self, input, target):
-        input, target = super().forward(input, target)
-        input, target = input['label'], target['label']
-
+    def forward(self, input, target, **kwargs):
+        input, target = np.array(input['label']), np.array(target['label'])
         roc_auc = self.get_roc_auc(target, input)
         accuracy_f1 = self.accuracy_f1(target, input)
-
         return {**accuracy_f1, **roc_auc}
-
-    def get_required_keys(self):
-        return ['label']
 
     def accuracy_f1(self, y_true, y_pred):
         metrics = dict()
@@ -67,18 +62,18 @@ class ClassificationMetric(BaseMetric):
         # Getting logits from decision function
         y_pred = self.logit_fn(y_pred)
 
-        roc_auc["macro"] = roc_auc_score(y_true, y_pred, average='macro')
-        roc_auc["micro"] = roc_auc_score(y_true, y_pred, average='micro')
+        roc_auc["auc_macro"] = roc_auc_score(y_true, y_pred, average='macro')
+        roc_auc["auc_micro"] = roc_auc_score(y_true, y_pred, average='micro')
 
         # Per class auroc
         for i in range(num_classes):
             fpr[i], tpr[i], _ = roc_curve(y_true[:, i], y_pred[:, i])
             auc_i = auc(fpr[i], tpr[i])
             roc_auc['auc_' + str(i)] = auc_i
-            plot_roc(fpr[i], tpr[i], auc_i, i, self.cfg, task_classes, current_epoch)
+            # plot_roc(fpr[i], tpr[i], auc_i, i, self.cfg, task_classes, current_epoch)
 
         # Plotting all classes
         fpr["micro"], tpr["micro"], _ = roc_curve(y_true.ravel(), y_pred.ravel())
-        plot_roc_multi(fpr, tpr, roc_auc, num_classes, self.cfg, task_classes, current_epoch)
+        # plot_roc_multi(fpr, tpr, roc_auc, num_classes, self.cfg, task_classes, current_epoch)
 
         return roc_auc

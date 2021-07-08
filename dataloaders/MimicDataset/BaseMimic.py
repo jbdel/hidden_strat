@@ -3,7 +3,7 @@ from dataloaders.BaseDataset import BaseDataset
 
 
 class BaseMimic(BaseDataset):
-    def __init__(self, task='all', data_root='./data/mimic-cxr/', image_root='./data/mimic-cxr/images',
+    def __init__(self, task='all', data_root='./data/mimic-cxr/', image_root='./data/mimic-cxr',
                  ann_file='annotations.json', **kwargs):
         super().__init__(task)
         self.data_root = data_root

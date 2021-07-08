@@ -1,38 +1,44 @@
 model: densenet169
 model_params:
   pretrained: True
+  vector_size: 768
+  chexbert_pth: classifier/models/chexbert.pth
 dataset: MimicDataset
 dataset_params:
     task: six
     return_label: True
     return_image: True
-    return_report: False
+    return_report: True
     image_root: data/mimic-cxr/
     ann_file: annotations.json
 losses:
     - ClassificationLoss
+    - CosineLossChex
+losses_params:
+    CosineLoss:
+        weight: 1.0
 metrics:
     - ClassificationMetric
 metrics_params:
     decision_function: sigmoid
 early_stop:
-    early_stop_metric: f1_score_weighted
+    early_stop_metric: CosineLossChex
     no_improvements: 10
-    higher_is_better: True
+    higher_is_better: False
 scheduler:
     use_scheduler: True
     name: ReduceLROnPlateau #takes early_stop_metric by default
 scheduler_params:
     mode: max
     factor: 0.5
-    patience: 1
+    patience: 2
     threshold: 0.005  # 0.5%
     threshold_mode: abs
 hyperparameter:
     lr_base: 1e-3
-    batch_size: 64
+    batch_size: 32
     grad_norm_clip: -1
     eval_start: 1
 experiment:
-    name: my_model
+    name: my_model_constrained
     output_dir: classifier/checkpoints

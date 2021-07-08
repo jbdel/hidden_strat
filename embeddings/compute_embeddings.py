@@ -40,6 +40,7 @@ if __name__ == '__main__':
                                                       return_report=True,
                                                       return_label=True,
                                                       return_image=cfg.dataset.return_image is not None,
+                                                      image_root=cfg.dataset.image_root,
                                                       task=cfg.dataset.task)
 
         embeddings, labels = list(), list()
@@ -66,7 +67,7 @@ if __name__ == '__main__':
             continue
 
         # Plotting visualization
-        for visualization in [TSNE(n_components=2, n_jobs=4, verbose=0, n_iter=2000),
+        for visualization in [TSNE(n_components=2, n_jobs=4, verbose=0),
                               umap.UMAP(n_neighbors=dataset.num_classes)
                               ]:
 

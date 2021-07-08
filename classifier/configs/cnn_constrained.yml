@@ -21,15 +21,15 @@ metrics:
 metrics_params:
     decision_function: sigmoid
 early_stop:
-    early_stop_metric: f1_score_weighted
-    no_improvements: 5
-    higher_is_better: True
+    early_stop_metric: CosineLoss
+    no_improvements: 10
+    higher_is_better: False
 scheduler:
     use_scheduler: True
     name: ReduceLROnPlateau #takes early_stop_metric by default
 scheduler_params:
     mode: max
-    factor: 0.1
+    factor: 0.5
     patience: 2
     threshold: 0.005  # 0.5%
     threshold_mode: abs

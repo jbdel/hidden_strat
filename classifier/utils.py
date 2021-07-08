@@ -22,9 +22,9 @@ def flatten(A):
 def get_losses_fn(cfg):
     losses_fn = []
     for loss in cfg.losses:
-        loss_param = cfg.losses_params[loss]
-        if loss_param is None:
-            loss_param = dict()
+        loss_param = dict()
+        if cfg.losses_params and loss in cfg.losses_params:
+            loss_param = cfg.losses_params[loss]
         losses_fn.append(eval(loss)(cfg, **loss_param))
     return losses_fn
 
@@ -36,7 +36,9 @@ def get_metrics(cfg):
 
 
 def get_model(cfg):
-    if 'CosineLoss' in cfg.losses and ('resnet' in cfg.model or 'densenet' in cfg.model):
+    if cfg.dataset_params.return_report:
+        return CNNChexbert
+    elif 'CosineLoss' in cfg.losses and ('resnet' in cfg.model or 'densenet' in cfg.model):
         return CNNConstrained
     elif 'resnet' in cfg.model or 'densenet' in cfg.model:
         return CNN

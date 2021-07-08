@@ -8,9 +8,8 @@ class ClassificationLoss(BaseLoss):
         self.func = nn.BCEWithLogitsLoss(reduction="sum")
 
     def forward(self, input, target):
-        input, target = super().forward(input, target)
         input, target = input['label'], target['label']
-        return self.func(input, target)
-
-    def get_required_keys(self):
-        return ['label']
+        input, target = super().forward(input, target)
+        loss = self.func(input, target)
+        self.update_running_loss(loss)
+        return loss

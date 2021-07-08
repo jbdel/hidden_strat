@@ -58,9 +58,8 @@ if __name__ == '__main__':
     #                          num_workers=n_gpus * 4,
     #                          pin_memory=True)
 
-    dataset_keys = train_dset.__getitem__(0).keys()
-    print('Using dataset', type(train_dset).__name__, 'with task', train_dset.task, 'returning batch with keys',
-          dataset_keys)
+    print('Using dataset', type(train_dset).__name__, 'with task', train_dset.task)
+
     # Net
     net_func = get_model(cfg)
     cfg.model_params = OmegaConf.merge({
@@ -70,34 +69,21 @@ if __name__ == '__main__':
     }, cfg.model_params)
 
     net = net_func(**cfg.model_params).cuda()
-    print('Using model', type(net).__name__, 'with input', net.get_forward_input_keys(), 'returning',
-          net.get_forward_output_keys(), 'with', net.num_classes,
-          'output neurons')
+    print('Using model', type(net).__name__, 'with', net.num_classes, 'output neurons')
 
     # Losses
     losses_fn = get_losses_fn(cfg)
-    loss_required_keys = set(flatten([loss.get_required_keys() for loss in losses_fn]))
-    print('Using losses', [(type(loss).__name__, 'weight:' + str(loss.weight)) for loss in losses_fn],
-          "needing the model to return",
-          loss_required_keys)
+    print('Using losses', [(type(loss).__name__, 'weight:' + str(loss.weight)) for loss in losses_fn])
 
     # Metrics
     metrics_fn = get_metrics(cfg)
-    metrics_required_keys = set(flatten([metric.get_required_keys() for metric in metrics_fn]))
-    print('Using metrics', [type(metric).__name__ for metric in metrics_fn], "needing the model to return",
-          metrics_required_keys)
-
-    # Checking configs OK
-    assert all([key in dataset_keys for key in net.get_forward_input_keys()]), 'Dataset and Model keys dont match'
-    assert all([key in net.get_forward_output_keys() for key in loss_required_keys]), 'Losses and Model keys dont match'
-    assert all(
-        [key in net.get_forward_output_keys() for key in metrics_required_keys]), 'Metrics and Model keys dont match'
-    print('Everything matches')
+    print('Using metrics', [type(metric).__name__ for metric in metrics_fn])
 
     # Create Checkpoint dir
     cfg.checkpoint_dir = os.path.join(cfg.experiment.output_dir, cfg.experiment.name)
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
 
+    # Optimizer
     optimizer = optim.AdamW(net.parameters(), lr=cfg.hyperparameter.lr_base)
     print('Using optimizer', optimizer)
 
@@ -121,20 +107,10 @@ if __name__ == '__main__':
                                 cfg,
                                 )
     else:
-        net.load_state_dict(ckpt['state_dict'])
+        net.load_state_dict(ckpt['state_dict'], strict=False)
+        print("Net Loaded")
         metrics = evaluate(net, losses_fn, metrics_fn, eval_loader, cfg)
         for k, v in metrics.items():
             if 'dict' in k:
                 continue
             print("'{}':{}".format(k, v))
-
-    # # Keeping all objects in cfg
-    # cfg.objects = DictConfig({'train_dset': train_dset,
-    #                           'eval_dset': eval_dset,
-    #                           'test_dset': test_dset,
-    #                           'net': net,
-    #                           'losses_fn': losses_fn,
-    #                           'metrics_fn': metrics_fn,
-    #                           'optimizer': optimizer,
-    #                           'scheduler': scheduler,
-    #                           })

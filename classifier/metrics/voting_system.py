@@ -1,30 +1,56 @@
-import os
-import pickle
 import numpy as np
-from .basemetric import BaseMetric
 from dataloaders import *
-from tqdm import tqdm
 from omegaconf.dictconfig import DictConfig
 from omegaconf import OmegaConf
 from sklearn.utils.sparsefuncs import count_nonzero
 from scipy.sparse import csr_matrix
 import copy
-from collections import defaultdict, Counter
 from sklearn.metrics import classification_report
+from tqdm import tqdm
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torch.utils.data.sampler import BatchSampler, SequentialSampler
 
-
-def get_vectors_labels(dset):
-    vectors = []
+def get_labels(dset):
     labels = []
     for i in tqdm(range(len(dset))):
-    # for i in tqdm(range(500)):
+        sample = dset.__getitem__(i)
+        labels.append(sample["label"])
+    return np.array(labels)
+
+
+def get_vectors_dataloader(dset):
+    vectors = []
+    for i in tqdm(range(len(dset))):
+        # for i in tqdm(range(500)):
         sample = dset.__getitem__(i)
         vectors.append(sample["vector"])
-        labels.append(sample["label"])
-    return np.array(vectors), np.array(labels)
+    return np.array(vectors)
 
 
+def get_vectors_model(dset, net):
+    vectors = []
+    dset.return_image = True
+    net.eval()
+    bs = BatchSampler(SequentialSampler(dset), batch_size=1, drop_last=False)
+    dl = DataLoader(dset, batch_sampler=bs)
+    for s in tqdm(dl):
+        pred = net(s)
+        vectors.append(pred["vector"].squeeze().cpu().data.numpy())
+    return np.array(vectors)
+
+
+def cosine_distance_torch(x1, x2=None, eps=1e-8):
+    x2 = x1 if x2 is None else x2
+    w1 = x1.norm(p=2, dim=1, keepdim=True)
+    w2 = w1 if x2 is x1 else x2.norm(p=2, dim=1, keepdim=True)
+    return 1 - torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
+
+
+# https://github.com/RaRe-Technologies/gensim/blob/master/gensim/matutils.py#L48
 def argsort(x, topn=None, reverse=False):
+    """Efficiently calculate indices of the `topn` smallest elements in array `x`."""
     x = np.asarray(x)  # unify code path for when `x` is not a np array (list, tuple...)
     if topn is None:
         topn = x.size
@@ -39,9 +65,13 @@ def argsort(x, topn=None, reverse=False):
     return most_extreme.take(np.argsort(x.take(most_extreme)))  # resort topn into order
 
 
-class HiddenStratMetric(BaseMetric):
-    def __init__(self, cfg, decision_function=None, **kwargs):
-        super(HiddenStratMetric, self).__init__(cfg, **kwargs)
+class VotingSystemMetric(nn.Module):
+    def __init__(self, cfg, decision_function=None, vectors_from_model=False, **kwargs):
+        super(VotingSystemMetric, self).__init__()
+
+        self.cfg = cfg
+        # whether vectors comes from dataloader or model (True if finetune chexbert for e.g.)
+        self.vectors_from_model = vectors_from_model
 
         # Decision function
         assert decision_function is not None, 'decision_function is None'
@@ -53,22 +83,21 @@ class HiddenStratMetric(BaseMetric):
         else:
             raise NotImplementedError(self.decision_function)
 
-        # Train vectors and train labels for 'all' task
+        # We need the labels from "all" task to compute metrics
         dataset_params = copy.deepcopy(cfg.dataset_params)
         OmegaConf.update(dataset_params, 'task', 'all', merge=False)
+        OmegaConf.update(dataset_params, 'return_image', False, merge=False)
         train_dset = eval(self.cfg.dataset)('train', **dataset_params)
         val_dset = eval(self.cfg.dataset)('val', **dataset_params)
 
-        report_pkl_path = os.path.join(train_dset.data_root, "hidden_strat.pkl")
-        if not os.path.exists(report_pkl_path):
-            print('HiddenStratMetric: Building list of reports (only once)')
-            train_vectors, train_labels = get_vectors_labels(train_dset)
-            valid_vectors, valid_labels = get_vectors_labels(val_dset)
-            pickle.dump((train_vectors, train_labels, valid_vectors, valid_labels),
-                        open(report_pkl_path, "wb"))
+        print('VotingSystemMetric: Building list of labels')
+        self.train_labels = get_labels(train_dset)
+        self.valid_labels = get_labels(val_dset)
 
-        self.train_vectors, self.train_labels, self.valid_vectors, self.valid_labels = pickle.load(
-            open(report_pkl_path, "rb"))
+        # Getting the training linguistic embedding space (if from dataloader)
+        if not self.vectors_from_model:
+            print('VotingSystemMetric: Building list of vectors')
+            self.train_labels = get_vectors_dataloader(train_dset)
 
         # Get 'all' info
         self.all_classes = np.array(val_dset.get_all_class_names_ordered())
@@ -79,32 +108,34 @@ class HiddenStratMetric(BaseMetric):
         self.task_tree = val_dset.get_tree()
         self.task_classes = np.array(list(val_dset.get_classes()))
 
-        del train_dset
-        del val_dset
+        self.train_dset = train_dset
+        self.val_dset = val_dset
 
-    def forward(self, input, target):
-        # import inspect        #
-        # for v in inspect.stack():
-        #     print(v.function)
-        # sys.exit()
+    def forward(self, input, target, net=None, **kwargs):
 
-        input, target = super().forward(input, target)
-        metrics = dict()
+        # CNN last states from validation set
+        vectors = torch.from_numpy(np.array(input['vector']))
 
-        # Getting correct classification
-        y_pred = self.pred_fn(input['label'])
-        y_true = self.pred_fn(target['label'])
-        correct = np.where(count_nonzero(csr_matrix(y_true) - csr_matrix(y_pred), axis=1) == 0)
-        correct = correct[0]
+        # if the training embedding space has been finetuned, we compute it now
+        if self.vectors_from_model:
+            assert net is not None
+            print('VotingSystemMetric: Building list of vectors')
+            self.train_vectors = get_vectors_model(self.train_dset, net)
+
+        dists = cosine_distance_torch(vectors.cuda(), torch.from_numpy(self.train_vectors).cuda())
+        dists = dists.cpu().data.numpy()
+
+        # Getting preds
+        y_pred = self.pred_fn(np.array(input['label']))
+        # y_true = self.pred_fn(np.array(target['label']))
+        # correct = np.where(count_nonzero(csr_matrix(y_true) - csr_matrix(y_pred), axis=1) == 0)
+        # correct = correct[0]
 
         y_true_all = []
         y_pred_all = []
-        # For each right prediction...
-        for index in correct:
+        for index in tqdm(range(len(y_pred))):
             # Get top 10 train neighbors
-            vector = target['vector'][index]
-            dists = np.dot(self.train_vectors, np.squeeze(vector))
-            best_index = argsort(dists, topn=10, reverse=True)
+            best_index = argsort(dists[index], topn=10)
             # get neighbors labels and average it, we keep labels that appears > 50% of the time
             neighbors_labels = self.train_labels[best_index]
             neighbors_positive = (np.mean(neighbors_labels, axis=0)) > 0.5
@@ -136,10 +167,12 @@ class HiddenStratMetric(BaseMetric):
             y_pred_all.append(pred_all)
             y_true_all.append(gt_all)
 
+        metrics = dict()
+
         metrics['hidden_strat_report_string'] = classification_report(np.array(y_true_all), np.array(y_pred_all),
-                                                                      target_names=self.all_classes)
+                                                                      target_names=list(self.all_classes))
         metrics['hidden_strat_report_dict'] = classification_report(np.array(y_true_all), np.array(y_pred_all),
-                                                                    target_names=self.all_classes,
+                                                                    target_names=list(self.all_classes),
                                                                     output_dict=True)
         return metrics
 
@@ -164,5 +197,5 @@ if __name__ == '__main__':
                                                           'Enlarged Cardiomediastinum', 'Pleural']},
                       })
 
-    o = HiddenStratMetric(cfg=cfg, decision_function='sigmoid')
+    o = VotingSystemMetric(cfg=cfg, decision_function='sigmoid')
     valid(o)

@@ -15,6 +15,8 @@ class BaseDataset(Dataset):
         self.task_classes = list(self.get_classes())
         self.num_classes = len(self.task_classes)
 
+        self.hidden_strat_label_task = {c for c, sub_c in self.get_tree().items() if len(sub_c) > 1}
+
         self.pos_label_all = {c: i for i, c in enumerate(self.get_all_class_names_ordered())}
         self.pos_label_task = {c: i for i, c in enumerate(self.get_classes())}
 

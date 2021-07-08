@@ -7,24 +7,28 @@ import sys
 from .utils import logwrite
 import collections
 from omegaconf.dictconfig import DictConfig
+import operator
 
 
 def train(net, losses_fn, metrics_fn, train_loader, eval_loader, optimizer, scheduler, cfg):
     logfile = open(os.path.join(cfg.checkpoint_dir, 'log_run.txt'), 'w+')
 
     logwrite(logfile, str(cfg), to_print=False)
-    logwrite(logfile, "Total number of parameters : " + str(sum([p.numel() for p in net.parameters()]) / 1e6) + "M")
+    logwrite(logfile, "Total number of parameters : " + str(
+        sum([p.numel() for p in net.parameters() if p.requires_grad]) / 1e6) + "M")
 
     cfg.run = DictConfig({'no_improvements': 0,
                           'current_epoch': 0,
                           'early_stop': 0,
-                          'best_early_stop_metric': 0.0 if cfg.early_stop.higher_is_better else float('inf')})
+                          'best_early_stop_metric': 0.0 if cfg.early_stop.higher_is_better else float('inf'),
+                          })
 
     scaler = torch.cuda.amp.GradScaler()
 
-    loss_dict = dict()
     summary = ''
     batch_size = cfg.hyperparameter.batch_size
+    metric_comparison_func = operator.gt if cfg.early_stop.higher_is_better else operator.lt
+
     for epoch in range(0, 9999):
         cfg.run.current_epoch = epoch
         net.train()
@@ -37,9 +41,8 @@ def train(net, losses_fn, metrics_fn, train_loader, eval_loader, optimizer, sche
 
             losses = 0.0
             for loss_fn in losses_fn:
-                loss = loss_fn(pred, sample)
+                loss = loss_fn.weight * loss_fn(pred, sample)
                 losses += loss
-                loss_dict[type(loss_fn).__name__] = loss.item()
             scaler.scale(losses).backward()
 
             # Gradient norm clipping
@@ -56,7 +59,7 @@ def train(net, losses_fn, metrics_fn, train_loader, eval_loader, optimizer, sche
                 cfg.run.current_epoch + 1,
                 step,
                 int(len(train_loader.dataset) / batch_size),
-                ["{}: {:.2f}".format(k, v / batch_size) for k, v in loss_dict.items()],
+                ["{}: {:.2f}".format(type(loss_fn).__name__, loss_fn.mean_running_loss) for loss_fn in losses_fn],
                 *[group['lr'] for group in optimizer.param_groups],
                 cfg.run.no_improvements,
                 cfg.early_stop.no_improvements,
@@ -79,12 +82,12 @@ def train(net, losses_fn, metrics_fn, train_loader, eval_loader, optimizer, sche
             cfg.run.no_improvements += 1
 
             # Best model beaten
-            if metric_value > cfg.run.best_early_stop_metric:
+            if metric_comparison_func(metric_value, cfg.run.best_early_stop_metric):
                 torch.save(
                     {
                         'state_dict': net.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'scheduler': scheduler.state_dict(),
+                        # 'optimizer': optimizer.state_dict(),
+                        # 'scheduler': scheduler.state_dict(),
                         'cfg': cfg,
                         'metrics': metrics,
                     },
@@ -114,18 +117,20 @@ def evaluate(net, losses_fn, metrics_fn, eval_loader, cfg):
         samples = collections.defaultdict(list)
 
         # Getting all prediction and labels
-        for step, sample in enumerate(eval_loader):
+        for step, sample in (enumerate(eval_loader)):
             pred = net(sample)
             for k in pred.keys():
                 preds[k].extend(pred[k].cpu().data.numpy())
-                samples[k].extend(sample[k].data.numpy())
+            for k in sample.keys():
+                sample[k] = sample[k].data.numpy() if isinstance(sample[k], torch.Tensor) else sample[k]
+                samples[k].extend(sample[k])
 
         metrics = dict()
-        # calculating val_loss
+        # calculating validation loss(es)
         for loss_fn in losses_fn:
             metrics[type(loss_fn).__name__] = loss_fn(preds, samples).item()
-
+        # calculating metrics
         for metric_fn in metrics_fn:
-            metrics = {**metrics, **metric_fn(preds, samples)}
+            metrics = {**metrics, **metric_fn(preds, samples, net=net)}
 
     return metrics

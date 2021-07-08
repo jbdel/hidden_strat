@@ -12,22 +12,19 @@ class BaseLoss(nn.Module):
         self.cfg = cfg
         self.weight = weight
 
+        self.iteration = 0
+        self.running_loss = 0
+        self.mean_running_loss = 0
+
     def forward(self, input, target):
-        assert isinstance(input, dict), 'input is not a dictionary'
-        assert isinstance(target, dict), 'input is not a dictionary'
+        if isinstance(input, (list, np.ndarray)):
+            input = torch.as_tensor(np.array(input))
+        if isinstance(target, (list, np.ndarray)):
+            target = torch.as_tensor(np.array(target))
+        return input, target.to(device=input.device)
 
-        for key in self.get_required_keys():
-            i, t = input[key], target[key]
-            if isinstance(i, (list, np.ndarray)):
-                i = torch.as_tensor(np.array(i))
-            if isinstance(t, (list, np.ndarray)):
-                t = torch.as_tensor(np.array(t))
-            t = t.to(device=i.device)
-            input[key] = i
-            target[key] = t
-
-        return input, target
-
-    @abc.abstractmethod
-    def get_required_keys(self):
-        raise NotImplementedError('users must define get_required_keys to use this base class')
+    def update_running_loss(self, loss):
+        self.iteration += 1
+        self.running_loss += loss.item()
+        self.mean_running_loss = self.running_loss / self.iteration
+        # self.mean_running_loss = loss.item()

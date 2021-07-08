@@ -1,1 +1,1 @@
-from .cnn import CNNConstrained, CNN
+from .cnn import CNNConstrained, CNN, CNNChexbert

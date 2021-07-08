@@ -2,7 +2,7 @@ mimic-data: Download annotations.json and the images from [here](https://drive.g
 and place it in `data/mimic-cxr/`<br/>
 
 
-##### tackling the hidden strat problem
+##### Lets go
 
 Datasets are configured with different tasks. 
 
@@ -16,7 +16,7 @@ python -m classifier.main --config classifier/configs/cnn.yml
 ```
 By default, this command will start training on task 'six' as stated in the yml file. You can override config parameters by using `--o`:
 ```
-python -m classifier.main --config classifier/configs/cnn.yml -o dataset_params.task=all hyperparameter.lr_base=1e-3
+python -m classifier.main --config classifier/configs/cnn.yml -o dataset_params.task=all
 ```
 
 To evaluate a checkpoint, use the `ckpt` argument. According config is loaded from the ckpt.
@@ -25,79 +25,31 @@ python -m classifier.main --ckpt classifier/checkpoints/my_model_all/best0.46879
 ```
 
 ##### How to constrain a model
-
-For a dataset, here is what annotations.json looks like:
-
-```
-{"val":
-     [
-        {'id': str,
-        'study_id': str,
-        'subject_id': str,
-        'image_path': str,
-        'split': str,
-        'label': list,
-        'report': dict,
-        },
-     ...],
- "train": [{...}, ...],
- "test": [{...}, ...]
- }
-```
-The report dictionary contains the following information:
-```
-{
- 'findings': str,
- 'impression': str,
- 'last_paragraph': str,
- 'comparison': str
-}
-```
-You can use each report to compute vectors representation. This is the command using doc2vec
-
-```
-python -m embeddings.compute_embeddings --config embeddings/configs/doc2vec_train.yml
-```
-It trains a doc2vec model and plots embeddings using tsne and umap. 
-
-It will also create the file `embeddings/output/doc2vec_mimic/vectors.pkl` that you can use to train a contrained model.<br/>
-
-In the config file, notice the param `report.report_policy: top_section`. It defines what to input from the report to the embedding model.
-So far we have two policies definied at: `embeddings/utils.py`:
- 
- ```
-def get_report(report, policy=None):
-    if policy is None:
-        policy = 'top_section'
-
-    if policy == 'top_section':
-        for section in ['findings', 'impression', 'background']:
-            if section not in report:
-                continue
-
-            if report[section] != '':
-                return report[section]
-
-    elif policy == 'all_section':
-        ret = ''
-        for section in ['findings', 'impression', 'background']:
-            if section not in report:
-                continue
-            ret += report[section] + ' '
-    else:
-        raise NotImplementedError(policy)
-```
-
-Make your own.<br/>
-
-To train a constrained model, use the following command
+1) Either you specify a pkl vector file trained with the `embeddings` package.
 ```
 python -m classifier.main --config classifier/configs/cnn_constrained.yml -o dataset_params.vector_file=embeddings/output/doc2vec_mimic/vectors.pkl
 ```
-The constraining is done by the `CosineLoss` in `classifier/losses/cosine.py`.
+This command will use the `VectorMimicDataset` dataloader.<br/>
+The constraining is done by the `CosineLoss` in `classifier/losses/cosine.py`.<br/>
+The reports embedding vectors are fixed and not finetuned.
 
-Though it will be trained on `task: six`, you can evaluate it on all classes by doing:
+Though it will be trained on `task: six`, you can evaluate it on all classes using the VotingSystemMetric by doing:
 ```
-python -m classifier.main --ckpt classifier/checkpoints/my_model_constrained/best0.46879885719564507.pkl -o metrics=[HiddenStratMetric]
+python -m classifier.main --ckpt classifier/checkpoints/my_model_constrained/best0.46879885719564507.pkl -o metrics=[VotingSystemMetric]
 ```
-More info on how we do it in `classifier/metrics/hidden_strat.py`
+The voting system is as described in the ppt.
+
+2) Or you use chexbert to compute the report embedding vectors, and finetune the model (while training the CNN). <br/>
+First, download the chexbert.pth pretrained model [here](https://drive.google.com/drive/folders/17LbZabgnvQfutRnLTRIO_MsCVaFUdhjj?usp=sharing) 
+and place it in `classifier/models`
+```
+python -m classifier.main --config classifier/configs/cnn_constrained_chexbert.yml \
+-o dataset_params.task=six 
+```
+All infos are in the yml file. <br/>
+Evaluation in this case is run with cmd :
+``` 
+python -m classifier.main --ckpt classifier/checkpoints/my_model_constrained/best0.07790679484605789.pkl \
+-o metrics=[VotingSystemMetric] \
+metrics_params.vectors_from_model=True
+```
